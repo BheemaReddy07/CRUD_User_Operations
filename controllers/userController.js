@@ -1,8 +1,8 @@
 import nodemailer from "nodemailer";
 import validator from "validator";
 import userModel from "../models/userModel.js";
-import bcrypt from 'bcrypt'
-import jwt from 'jsonwebtoken'
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
@@ -12,7 +12,7 @@ const sendOTPEmail = async (name, email, otp) => {
     service: "gmail",
     auth: {
       user: process.env.MAIL_SENDER_MAIL_NEW,
-      pass: MAIL_SENDER_EMAIL_NEW_PASSWORD,
+      pass: "uftj uitu tnuk nevi",
     },
   });
   const mailOptions = {
@@ -44,11 +44,14 @@ const requestOTPtoRegister = async (req, res) => {
     if (password.length < 8) {
       return res.json({ success: false, message: "enter strong password" });
     }
-    if(password !== repassword){
-        return res.json({success:false,message:"password doesnot match with repassword"})
+    if (password !== repassword) {
+      return res.json({
+        success: false,
+        message: "password doesnot match with repassword",
+      });
     }
     const user = await userModel.findOne({ email });
-    if (user && verified) {
+    if (user && user.verified) {
       return res.json({ success: false, message: "User already exists" });
     }
 
@@ -70,14 +73,38 @@ const requestOTPtoRegister = async (req, res) => {
         verified: false,
       });
       await userData.save();
-
-
     }
 
-    await sendOTPEmail(name,email,otp)
-    res.json({success:true,message:"otp sent successfully"})
+    await sendOTPEmail(name, email, otp);
+    res.json({ success: true, message: "otp sent successfully" });
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
 
+const verifyOTPandRegister = async (req, res) => {
+  try {
+    const { email, password, otp } = req.body;
+    const user = await userModel.findOne({ email });
+    if (!user) {
+      return res.json({ success: false, message: "No user found" });
+    }
+    if (user.otp != otp || Date.now() > user.otpExpiration) {
+      return res.json({ success: false, message: "Invalid or Expired otp" });
+    }
 
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    await userModel.findByIdAndUpdate(user._id, {
+      password: hashedPassword,
+      otp: null,
+      otpExpiration: null,
+      verified: true,
+    });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+    res.json({ success: true, token, message: "regestered successfully" });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });
@@ -85,35 +112,80 @@ const requestOTPtoRegister = async (req, res) => {
 };
 
 
-
-const verifyOTPandRegister = async (req,res) =>{
+const loginUser = async (req,res) =>{
     try {
-        const {email,password,otp} = req.body;
-        const user  = await userModel.findOne({email})
+        const {email,password} = req.body
+        const user = await userModel.findOne({email})
         if(!user){
             return res.json({success:false,message:"No user found"})
         }
-        if(user.otp!=otp || Date.now()>user.otpExpiration){
-            return res.json({success:false,message:"Invalid or Expired otp"})
+
+        const isMatch =  await bcrypt.compare(password,user.password)
+
+        if(isMatch){
+            const token = jwt.sign({id:user._id},process.env.JWT_SECRET)
+            res.json({success:true,message:"Login successfull",token})
         }
-
-        const salt = bcrypt.genSalt(10);
-        const hashedPassword = bcrypt.hash(password,salt)
-
-        await userModel.findByIdAndUpdate(user._id,{
-            password:hashedPassword,
-            otp:null,
-            otpExpiration:null,
-            verified:true
-        })
-    const token = jwt.sign({id:user._id},process.env.JWT_SECRET)
-    res.json({success:true,token,message:"regestered successfully"})
-    
-
+        else{
+            return res.json({success:false,message:"incorrect password"})
+        }
     } catch (error) {
         console.log(error);
-    res.json({ success: false, message: error.message });
+        res.json({ success: false, message: error.message });
     }
 }
 
-export { requestOTPtoRegister,verifyOTPandRegister };
+const requestForgotPasswordOtp = async (req, res) => {
+  try {
+    const {name,email} = req.body
+    const user = await userModel.findOne({email})
+    if(!user){
+        return res.json({success:false,message:"No user found"})
+    }
+    const otp = generateOTP();
+    console.log(otp)
+    user.otp = otp;
+    user.otpExpiration = Date.now()+3*60*1000;
+
+    await user.save();
+
+    await sendOTPEmail(name,email,otp);
+
+    res.json({success:true,message:"otp send for RESET password"})
+
+  } catch (error) {
+    console.log(error);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+const resetPassword = async (req,res) =>{
+    try {
+        const {email,password,repassword,otp} = req.body
+        const user  = await userModel.findOne({email})
+        if(!user){
+            return res.json({success:false,message:"no user found"})
+        }
+        if(user.otp!==otp || Date.now()>user.otpExpiration){
+            return res.json({success:false,message:"Invalid or Expired otp"})
+        }
+        if(password!==repassword){
+            return res.json({success:false,message:"password not matching with repassword"})
+        }
+        const salt = await bcrypt.genSalt(10)
+        const hashedPassword = await bcrypt.hash(password,salt)
+
+        user.otp =null;
+        user.password=hashedPassword;
+        user.otp = null;
+        await user.save()
+
+        res.json({success:true,message:"password reset successfull"})
+
+    } catch (error) {
+        console.log(error);
+        res.json({ success: false, message: error.message });
+    }
+}
+
+export { requestOTPtoRegister, verifyOTPandRegister,loginUser,requestForgotPasswordOtp ,resetPassword};
