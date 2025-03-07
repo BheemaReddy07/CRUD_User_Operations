@@ -91,7 +91,7 @@ const verifyOTPandRegister = async (req, res) => {
       return res.status(404).json({ success: false, message: "No user found" });
     }
     if (user.otp != otp || Date.now() > user.otpExpiration) {
-      return res.status(401).json({ success: false, message: "Invalid or Expired otp" });
+      return res.status(400).json({ success: false, message: "Invalid or Expired otp" });
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -103,7 +103,7 @@ const verifyOTPandRegister = async (req, res) => {
       otpExpiration: null,
       verified: true,
     });
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET,{ expiresIn: "1d" });
     res.status(201).json({ success: true, token, message: "regestered successfully" });
   } catch (error) {
     console.log(error);
@@ -122,7 +122,7 @@ const loginUser = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (isMatch) {
-      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET,{ expiresIn: "1d" });
       res.status(200).json({ success: true, message: "Login successfull", token });
     } else {
       return res.status(401).json({ success: false, message: "incorrect password" });
@@ -164,10 +164,10 @@ const resetPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: "no user found" });
     }
     if (user.otp !== otp || Date.now() > user.otpExpiration) {
-      return res.status(401).json({ success: false, message: "Invalid or Expired otp" });
+      return res.status(400).json({ success: false, message: "Invalid or Expired otp" });
     }
     if (password !== repassword) {
-      return res.status(401).json({
+      return res.status(400).json({
         success: false,
         message: "password not matching with repassword",
       });
@@ -205,13 +205,14 @@ setInterval(cleanUpExpiredUser, time);
 
 const getAllUsers = async (req, res) => {
   try {
-    const users = await userModel
-      .find({ verified: true })
-      .select(["-password", "-verified", "-otp", "-otpExpiration"]);
-    res.json({ success: true, users });
+    const users = await userModel.find({ verified: true }).select(["-password", "-verified", "-otp", "-otpExpiration"]);
+    if(!users.length){
+        res.status(404).json({success:false,message:"no users found"})
+    }
+    res.status(200).json({ success: true, users });
   } catch (error) {
     console.log(error);
-    res.json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -221,7 +222,7 @@ const updateUserDetails = async (req, res) => {
   
     const user = await userModel.findById(userId)
     if(!user){
-        return res.json({success:false,message:"User Not found"})
+        return res.status(404).json({success:false,message:"User Not found"})
     }
     const updatedData = {};
     if (name) updatedData.name = name;
@@ -233,10 +234,10 @@ const updateUserDetails = async (req, res) => {
 
     await userModel.findByIdAndUpdate(userId, updatedData, { new: true });
 
-    res.json({ success: true, message: "details updated" });
+    res.status(200).json({ success: true, message: "details updated" });
   } catch (error) {
     console.log(error);
-    res.json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -247,7 +248,7 @@ const getProfileDetails = async (req,res) =>{
         const {userId} = req.body
         const user = await userModel.findById(userId).select(["-password", "-verified", "-otp", "-otpExpiration"])
         if(!user){
-            return res.status(400).json({success:false,message:"No user Found"})
+            return res.status(404).json({success:false,message:"No user Found"})
         }
         res.status(200).json({success:true,user,message:"userData fetched successfully"})
     } catch (error) {
@@ -266,9 +267,9 @@ const deleteUser = async (req,res) =>{
 
         const deletedUser = await userModel.findByIdAndDelete(userId)
         if(!deletedUser){
-            return res.status(400).json({success:false,message:"No user Found"})
+            return res.status(404).json({success:false,message:"No user Found"})
         }
-        res.json({success:true,message:"user deleted successfully"})
+        res.status(200).json({success:true,message:"user deleted successfully"})
     } catch (error) {
         console.log(error);
         res.status(500).json({ success: false, message: error.message });
